@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "my-lyric-transcriber"
+version = "0.1.0"
+description = "Local MP3 lyric transcription with timed sidecars and portable playback bundles"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+# faster-whisper 1.2.1 uses av.open(metadata_errors=...), removed in newer PyAV.
+transcribe = ["faster-whisper>=1.1,<2", "av>=11,<17"]
+
+[project.scripts]
+lyric-transcriber = "lyric_transcriber.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["lyric_transcriber*"]
+
+[tool.setuptools.package-data]
+lyric_transcriber = ["player.html"]
