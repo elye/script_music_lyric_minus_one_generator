@@ -3,29 +3,53 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Timed lyrics · Local player</title>
+  <title>Timed lyrics · Local player and editor</title>
   <style>
     :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; background: #10151b; color: #edf2f7; }
     * { box-sizing: border-box; }
-    body { max-width: 880px; margin: auto; padding: 40px 24px; }
+    body { max-width: 920px; margin: auto; padding: 40px 24px; }
     header { margin-bottom: 28px; }
     .eyebrow { color: #a5dfba; text-transform: uppercase; letter-spacing: .15em; font-size: 12px; }
     h1 { font-size: clamp(24px, 5vw, 36px); overflow-wrap: anywhere; margin: 12px 0; }
-    .muted { color: #9ba9b9; font-size: 14px; line-height: 1.6; }
+    h2 { font-size: 22px; margin-top: 0; }
+    .muted { color: #a5b3c2; font-size: 14px; line-height: 1.6; }
     .controls { position: sticky; top: 12px; z-index: 1; background: #1b242e; border: 1px solid #344352; border-radius: 16px; padding: 18px; }
     audio { width: 100%; display: block; }
-    .options { display: flex; align-items: center; flex-wrap: wrap; gap: 20px; margin-top: 12px; font-size: 14px; }
-    select { background: #10151b; color: inherit; padding: 5px; border: 1px solid #697889; border-radius: 5px; }
+    .options, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+    .options { margin-top: 12px; font-size: 14px; }
+    button, input, select { font: inherit; }
+    button, select { background: #202d39; color: inherit; padding: 8px 12px; border: 1px solid #697889; border-radius: 7px; }
+    button { cursor: pointer; }
+    button:hover { background: #2b3d4c; }
+    button:disabled { opacity: .45; cursor: default; }
+    button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid #a5dfba; outline-offset: 3px; }
+    .primary { background: #a5dfba; border-color: #a5dfba; color: #102317; font-weight: 600; }
+    .primary:hover { background: #bce9cc; }
+    .danger { color: #ffc6bd; }
     #clock { margin-left: auto; font-variant-numeric: tabular-nums; color: #b9c8d8; }
-    #lyrics { display: grid; gap: 8px; margin: 28px 0; }
-    .line { text-align: left; border: 1px solid transparent; border-radius: 12px; color: #a8b6c6; padding: 16px; background: transparent; font: inherit; cursor: pointer; display: grid; grid-template-columns: 60px 1fr; gap: 16px; scroll-margin-top: 170px; }
+    .editor-tools { margin-top: 22px; padding: 18px; border: 1px solid #344352; border-radius: 12px; }
+    .editor-tools summary { font-weight: 600; cursor: pointer; }
+    .editor-tools p { margin: 12px 0; }
+    .offset-tools { display: flex; align-items: end; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+    label.field { display: grid; gap: 7px; font-size: 14px; }
+    input:not([type=checkbox]) { min-width: 0; width: 100%; padding: 10px; border: 1px solid #697889; border-radius: 7px; background: #10151b; color: inherit; }
+    #offset { width: 150px; }
+    #lyrics { display: grid; gap: 8px; margin: 24px 0; }
+    .lyric-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+    .line { text-align: left; border: 1px solid transparent; border-radius: 12px; color: #a8b6c6; padding: 16px; background: transparent; display: grid; grid-template-columns: 60px 1fr; gap: 16px; scroll-margin-top: 170px; }
     .line:hover { background: #1b242e; }
-    .line:focus-visible { outline: 2px solid #a5dfba; }
     .line.active { color: #effff4; background: #20332c; border-color: #456f59; }
-    .stamp { font-size: 12px; padding-top: 6px; font-variant-numeric: tabular-nums; color: #9ba9b9; }
+    .stamp { font-size: 12px; padding-top: 6px; font-variant-numeric: tabular-nums; color: #a5b3c2; }
     .lyric { font-size: clamp(18px, 3vw, 24px); line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
     .word.active { color: #caff82; text-decoration: underline; text-underline-offset: 6px; }
     #status { min-height: 22px; }
+    dialog { width: min(600px, calc(100% - 32px)); max-height: 90vh; overflow-y: auto; border: 1px solid #697889; border-radius: 16px; padding: 24px; background: #1b242e; color: inherit; }
+    dialog::backdrop { background: rgb(0 0 0 / .65); }
+    .time-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; }
+    .time-field { display: grid; gap: 8px; }
+    #edit-error { color: #ffc6bd; min-height: 20px; }
+    #remove-line { margin-right: auto; }
+    @media (max-width: 500px) { body { padding: 24px 12px; } .line { grid-template-columns: 44px 1fr; gap: 8px; padding: 12px 8px; } .time-fields { grid-template-columns: 1fr; } }
     @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
   </style>
 </head>
@@ -33,7 +57,7 @@
   <header>
     <div class="eyebrow">Local audio · Synchronized lyrics</div>
     <h1 id="title">Timed lyrics</h1>
-    <p class="muted">Click a line to seek. Word highlights use estimated alignment; review the transcript for accuracy.</p>
+    <p class="muted">Click a line to seek. Use Edit to correct lyrics and timing while listening.</p>
   </header>
   <section class="controls" aria-label="Playback controls">
     <audio id="audio" controls preload="metadata" src="__AUDIO_SOURCE__"></audio>
@@ -43,93 +67,48 @@
       <span id="clock">0:00 / 0:00</span>
     </div>
   </section>
+  <details class="editor-tools" open>
+    <summary>Correct lyrics &amp; timing</summary>
+    <p class="muted">Changes stay in this tab. Download corrected JSON, then use the export command to rebuild sidecars and the bundle. The original files are never changed.</p>
+    <div class="actions">
+      <button id="download-json" class="primary" type="button">Download corrected JSON</button>
+      <button id="add-line" type="button">Add line</button>
+      <button id="undo" type="button" disabled>Undo</button>
+    </div>
+    <div class="offset-tools">
+      <label class="field" for="offset">Shift all timings (seconds)<input id="offset" type="number" step="any" value="0" aria-describedby="offset-help"></label>
+      <button id="apply-offset" type="button">Apply offset</button>
+    </div>
+    <p id="offset-help" class="muted">Positive = later, negative = earlier. Shifts both lines and word highlights; times must stay within the recording.</p>
+    <p id="change-state" class="muted" role="status" aria-live="polite"></p>
+  </details>
   <p id="status" class="muted" role="status" aria-live="polite"></p>
   <main id="lyrics" aria-label="Lyrics"></main>
-  <footer class="muted">Offline player. Nothing is uploaded. Edit the JSON and run the export command to correct lyrics or timing.</footer>
+  <dialog id="line-editor" aria-labelledby="edit-title" aria-describedby="edit-help">
+    <form id="line-form" novalidate>
+      <h2 id="edit-title">Edit line</h2>
+      <p id="edit-help" class="muted">Times are seconds from the start of the MP3. Changing a line clears its estimated word timings; a whole-song offset preserves them. Pause playback before editing to use a stable playhead position.</p>
+      <label class="field" for="edit-text">Lyrics<input id="edit-text" type="text" required autocomplete="off"></label>
+      <div class="time-fields">
+        <div class="time-field">
+          <label class="field" for="edit-start">Start (seconds)<input id="edit-start" type="number" min="0" step="any" required></label>
+          <button id="start-here" type="button">Use playhead for start</button>
+        </div>
+        <div class="time-field">
+          <label class="field" for="edit-end">End (seconds)<input id="edit-end" type="number" min="0" step="any" required></label>
+          <button id="end-here" type="button">Use playhead for end</button>
+        </div>
+      </div>
+      <p id="edit-error" role="alert"></p>
+      <div class="actions">
+        <button id="remove-line" class="danger" type="button">Remove line</button>
+        <button id="cancel-edit" type="button">Cancel</button>
+        <button id="save-line" class="primary" type="submit">Apply changes</button>
+      </div>
+    </form>
+  </dialog>
+  <footer class="muted">Offline player and editor. Nothing is uploaded. Word highlights use estimated alignment; review the transcript for accuracy. Undo remembers the last 25 changes in this tab.</footer>
   <script id="transcript" type="application/json">__TRANSCRIPT_DATA__</script>
-  <script>
-    'use strict';
-    const transcript = JSON.parse(document.getElementById('transcript').textContent);
-    const audio = document.getElementById('audio');
-    const lyrics = document.getElementById('lyrics');
-    const status = document.getElementById('status');
-    const clock = document.getElementById('clock');
-    const follow = document.getElementById('follow');
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    document.getElementById('title').textContent = transcript.audio_file;
-    const formatTime = seconds => {
-      const whole = Math.max(0, Math.floor(seconds || 0));
-      return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, '0')}`;
-    };
-    const rows = transcript.lines.map(line => {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'line';
-      button.setAttribute('aria-label', `${formatTime(line.start)} ${line.text}`);
-      const stamp = document.createElement('span');
-      stamp.className = 'stamp';
-      stamp.textContent = formatTime(line.start);
-      const label = document.createElement('span');
-      label.className = 'lyric';
-      const words = line.words.map(word => {
-        const span = document.createElement('span');
-        span.className = 'word';
-        span.textContent = word.text;
-        label.append(span);
-        return span;
-      });
-      if (!words.length) label.textContent = line.text;
-      button.append(stamp, label);
-      button.addEventListener('click', () => {
-        audio.currentTime = line.start;
-        audio.play().catch(() => { status.textContent = 'Press Play in the audio controls to start playback.'; });
-      });
-      lyrics.append(button);
-      return { button, words };
-    });
-    if (!rows.length) status.textContent = 'No lyrics were recognized in this transcript.';
-    let active = -1;
-    function activeLine(time) {
-      let low = 0, high = transcript.lines.length - 1, result = -1;
-      while (low <= high) {
-        const middle = Math.floor((low + high) / 2);
-        if (transcript.lines[middle].start <= time) { result = middle; low = middle + 1; }
-        else high = middle - 1;
-      }
-      return result >= 0 && time < transcript.lines[result].end ? result : -1;
-    }
-    function update() {
-      const time = audio.currentTime;
-      const next = activeLine(time);
-      if (next !== active) {
-        if (active >= 0) {
-          rows[active].button.classList.remove('active');
-          rows[active].button.removeAttribute('aria-current');
-          rows[active].words.forEach(word => word.classList.remove('active'));
-        }
-        active = next;
-        if (active >= 0) {
-          rows[active].button.classList.add('active');
-          rows[active].button.setAttribute('aria-current', 'true');
-          if (follow.checked) rows[active].button.scrollIntoView({ block: 'center', behavior: reducedMotion ? 'auto' : 'smooth' });
-        }
-      }
-      if (active >= 0) transcript.lines[active].words.forEach((word, index) => {
-        rows[active].words[index].classList.toggle('active', word.start <= time && time < word.end);
-      });
-      clock.textContent = `${formatTime(time)} / ${formatTime(Number.isFinite(audio.duration) ? audio.duration : transcript.duration)}`;
-    }
-    document.getElementById('speed').addEventListener('change', event => { audio.playbackRate = Number(event.target.value); });
-    ['timeupdate', 'seeked', 'loadedmetadata', 'pause', 'ended'].forEach(event => audio.addEventListener(event, update));
-    audio.addEventListener('error', () => { status.textContent = 'Unable to load the MP3. Extract the ZIP and keep the audio beside index.html.'; });
-    let animation = null;
-    const animate = () => { update(); animation = audio.paused || audio.ended ? null : requestAnimationFrame(animate); };
-    audio.addEventListener('play', () => {
-      status.textContent = '';
-      if (animation !== null) cancelAnimationFrame(animation);
-      animate();
-    });
-    update();
-  </script>
+  <script>__PLAYER_SCRIPT__</script>
 </body>
 </html>

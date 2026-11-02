@@ -13,6 +13,7 @@ dependencies = []
 [project.optional-dependencies]
 # faster-whisper 1.2.1 uses av.open(metadata_errors=...), removed in newer PyAV.
 transcribe = ["faster-whisper>=1.1,<2", "av>=11,<17"]
+minus-one = ["demucs>=4,<5"]
 
 [project.scripts]
 lyric-transcriber = "lyric_transcriber.cli:main"
@@ -21,4 +22,4 @@ lyric-transcriber = "lyric_transcriber.cli:main"
 include = ["lyric_transcriber*"]
 
 [tool.setuptools.package-data]
-lyric_transcriber = ["player.html"]
+lyric_transcriber = ["player.html", "player.js"]

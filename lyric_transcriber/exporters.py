@@ -5,6 +5,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import shutil
 import tempfile
 from urllib.parse import quote
@@ -66,7 +67,13 @@ def render_player(transcript: Transcript) -> str:
     for original, escaped in (("&", "\\u0026"), ("<", "\\u003c"), (">", "\\u003e"), ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
         data = data.replace(original, escaped)
     template = Path(__file__).with_name("player.html").read_text(encoding="utf-8")
-    return template.replace("__AUDIO_SOURCE__", html.escape(quote(transcript.audio_file, safe=""), quote=True), 1).replace("__TRANSCRIPT_DATA__", data, 1)
+    replacements = {
+        "AUDIO_SOURCE": html.escape(quote(transcript.audio_file, safe=""), quote=True),
+        "TRANSCRIPT_DATA": data,
+        "PLAYER_SCRIPT": Path(__file__).with_name("player.js").read_text(encoding="utf-8"),
+    }
+    # Substitute only tokens in the template, never token-like text in user data.
+    return re.sub(r"__(AUDIO_SOURCE|TRANSCRIPT_DATA|PLAYER_SCRIPT)__", lambda match: replacements[match[1]], template)
 
 
 def export_transcript(
@@ -75,6 +82,7 @@ def export_transcript(
     *,
     audio: Path | None = None,
     bundle: bool = False,
+    minus_one: bool = False,
 ) -> Path:
     output = Path(output).expanduser().absolute()
     if output.exists() or output.is_symlink():
@@ -85,6 +93,8 @@ def export_transcript(
             raise ValueError("The MP3 filename must match audio_file in the transcript JSON")
     if bundle and audio is None:
         raise ValueError("A portable bundle requires the original MP3 (--audio)")
+    if minus_one and audio is None:
+        raise ValueError("Minus-one generation requires the original MP3 (--audio)")
 
     output.parent.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=f".{output.name}-", dir=output.parent))
@@ -99,6 +109,10 @@ def export_transcript(
         }
         for name, contents in files.items():
             (staging / name).write_text(contents, encoding="utf-8")
+        if minus_one:
+            from .separation import generate_minus_one
+
+            generate_minus_one(audio, staging / f"{stem}-minus-one.mp3")
         if bundle:
             shutil.copyfile(audio, staging / transcript.audio_file)
             (staging / "index.html").write_text(render_player(transcript), encoding="utf-8")
