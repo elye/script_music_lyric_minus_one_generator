@@ -62,6 +62,7 @@
   <section class="controls" aria-label="Playback controls">
     <audio id="audio" controls preload="metadata" src="__AUDIO_SOURCE__"></audio>
     <div class="options">
+      <label id="track-control"__TRACK_CONTROL_HIDDEN__>Audio track <select id="audio-track" aria-label="Audio track"><option value="__AUDIO_SOURCE__" selected>Original</option><option value="__MINUS_ONE_SOURCE__">Minus one</option></select></label>
       <label>Speed <select id="speed"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option></select></label>
       <label><input id="follow" type="checkbox" checked> Follow lyrics</label>
       <span id="clock">0:00 / 0:00</span>

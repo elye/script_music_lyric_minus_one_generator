@@ -60,6 +60,7 @@ function parseSeconds(value, label) {
 const transcript = JSON.parse(document.getElementById('transcript').textContent);
 const element = id => document.getElementById(id);
 const audio = element('audio');
+const audioTrack = element('audio-track');
 const lyrics = element('lyrics');
 const status = element('status');
 const clock = element('clock');
@@ -259,6 +260,25 @@ window.addEventListener('beforeunload', event => {
   if (fingerprint() !== savedLines || pendingDraft()) { event.preventDefault(); event.returnValue = ''; }
 });
 
+let sourceChange = 0;
+audioTrack.addEventListener('change', () => {
+  const source = audioTrack.value;
+  if (!source) return;
+  const change = ++sourceChange;
+  const position = audio.currentTime;
+  const playbackRate = audio.playbackRate;
+  const resume = !audio.paused && !audio.ended;
+  audio.addEventListener('loadedmetadata', () => {
+    if (change !== sourceChange) return;
+    const duration = Number.isFinite(audio.duration) ? audio.duration : transcript.duration;
+    audio.currentTime = Math.min(position, duration);
+    audio.playbackRate = playbackRate;
+    update();
+    if (resume) audio.play().catch(() => { status.textContent = 'Press Play in the audio controls to resume playback.'; });
+  }, { once: true });
+  audio.src = source;
+  audio.load();
+});
 element('speed').addEventListener('change', event => { audio.playbackRate = Number(event.target.value); });
 ['timeupdate', 'seeked', 'loadedmetadata', 'pause', 'ended'].forEach(event => audio.addEventListener(event, update));
 audio.addEventListener('error', () => { status.textContent = 'Unable to load the MP3. Extract the ZIP and keep the audio beside index.html.'; });

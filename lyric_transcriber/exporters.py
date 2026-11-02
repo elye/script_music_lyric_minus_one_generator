@@ -62,18 +62,27 @@ def render_json(transcript: Transcript) -> str:
     return json.dumps(transcript.to_dict(), ensure_ascii=False, indent=2, allow_nan=False) + "\n"
 
 
-def render_player(transcript: Transcript) -> str:
+def render_player(transcript: Transcript, *, minus_one: bool = False) -> str:
     data = render_json(transcript)
     for original, escaped in (("&", "\\u0026"), ("<", "\\u003c"), (">", "\\u003e"), ("\u2028", "\\u2028"), ("\u2029", "\\u2029")):
         data = data.replace(original, escaped)
     template = Path(__file__).with_name("player.html").read_text(encoding="utf-8")
+    audio_source = html.escape(quote(transcript.audio_file, safe=""), quote=True)
+    minus_one_source = html.escape(
+        quote(f"{Path(transcript.audio_file).stem}-minus-one.mp3", safe=""), quote=True
+    ) if minus_one else ""
     replacements = {
-        "AUDIO_SOURCE": html.escape(quote(transcript.audio_file, safe=""), quote=True),
+        "AUDIO_SOURCE": audio_source,
+        "MINUS_ONE_SOURCE": minus_one_source,
+        "TRACK_CONTROL_HIDDEN": "" if minus_one else " hidden",
         "TRANSCRIPT_DATA": data,
         "PLAYER_SCRIPT": Path(__file__).with_name("player.js").read_text(encoding="utf-8"),
     }
     # Substitute only tokens in the template, never token-like text in user data.
-    return re.sub(r"__(AUDIO_SOURCE|TRANSCRIPT_DATA|PLAYER_SCRIPT)__", lambda match: replacements[match[1]], template)
+    return re.sub(
+        r"__(AUDIO_SOURCE|MINUS_ONE_SOURCE|TRACK_CONTROL_HIDDEN|TRANSCRIPT_DATA|PLAYER_SCRIPT)__",
+        lambda match: replacements[match[1]], template,
+    )
 
 
 def export_transcript(
@@ -115,7 +124,7 @@ def export_transcript(
             generate_minus_one(audio, staging / f"{stem}-minus-one.mp3")
         if bundle:
             shutil.copyfile(audio, staging / transcript.audio_file)
-            (staging / "index.html").write_text(render_player(transcript), encoding="utf-8")
+            (staging / "index.html").write_text(render_player(transcript, minus_one=minus_one), encoding="utf-8")
             # Store audio without recompressing; MP3 is already compressed.
             with zipfile.ZipFile(staging / "bundle.zip", "w") as archive:
                 for path in sorted(staging.iterdir()):

@@ -67,8 +67,9 @@ function loadPlayer(transcript = fixture()) {
   elements.transcript.textContent = JSON.stringify(transcript);
   elements.offset.value = '0';
   const audio = elements.audio;
-  Object.assign(audio, { currentTime: 0, duration: NaN, paused: true, ended: false, playCalls: 0 });
+  Object.assign(audio, { currentTime: 0, duration: NaN, paused: true, ended: false, playCalls: 0, src: 'demo.mp3' });
   audio.play = () => { audio.playCalls += 1; return Promise.resolve(); };
+  audio.load = () => { audio.currentTime = 0; audio.duration = 10; audio.dispatch('loadedmetadata'); };
   const window = new Element();
   window.matchMedia = () => ({ matches: true });
   const context = vm.createContext({

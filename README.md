@@ -54,9 +54,11 @@ with vocals removed, encoded at 320 kbps. Use it with `export` too, alongside
 
 Demucs runs locally and may download its `htdemucs` model on first use; the
 transcription `--offline` option does not disable this download. The MP3 is
-included in `bundle.zip` when `--bundle` is enabled. Vocal separation is
-imperfect: some vocals may remain, and instruments that resemble vocals may be
-removed. Use audio you are authorized to process.
+included in `bundle.zip` when `--bundle` is enabled; the player then offers an
+Audio track selector to switch between the original and minus-one while keeping
+the playback position. Vocal separation is imperfect: some vocals may remain,
+and instruments that resemble vocals may be removed. Use audio you are authorized
+to process.
 
 Omit `--language` to detect it. The default model is multilingual `small` (roughly
 0.5 GB of weights); `tiny` is faster and much smaller but usually less accurate.
