@@ -154,6 +154,7 @@ class ExportTests(unittest.TestCase):
         self.assertNotIn(lyric, player)
         self.assertIn('src="a%20%23%22song.mp3"', player)
         self.assertIn('<label id="track-control" hidden>', player)
+        self.assertIn('audio[hidden] { display: none; }', player)
         data = player.split('<script id="transcript" type="application/json">', 1)[1].split('</script>', 1)[0]
         self.assertEqual(json.loads(data)["lines"][0]["text"], lyric)
         self.assertNotIn("__TRANSCRIPT_DATA__", player)
@@ -165,8 +166,9 @@ class ExportTests(unittest.TestCase):
     def test_minus_one_player_exposes_track_switch(self):
         player = render_player(sample(), minus_one=True)
         self.assertIn('<label id="track-control">', player)
-        self.assertIn('<option value="song.mp3" selected>Original</option>', player)
-        self.assertIn('<option value="song-minus-one.mp3">Minus one</option>', player)
+        self.assertIn('<option value="original" selected>Original</option>', player)
+        self.assertIn('<option value="minus-one">Minus one</option>', player)
+        self.assertIn('data-source="song-minus-one.mp3"', player)
 
     def test_template_tokens_in_user_data_are_not_expanded(self):
         lyric = "__PLAYER_SCRIPT__ __AUDIO_SOURCE__ __TRANSCRIPT_DATA__ __MINUS_ONE_SOURCE__ __TRACK_CONTROL_HIDDEN__"
@@ -214,11 +216,12 @@ class ExportTests(unittest.TestCase):
             minus_one_file = output / "song-minus-one.mp3"
             self.assertEqual(minus_one_file.read_bytes(), b"minus-one audio")
             player = (output / "index.html").read_text(encoding="utf-8")
-            self.assertIn('<option value="song-minus-one.mp3">Minus one</option>', player)
+            self.assertIn('<option value="minus-one">Minus one</option>', player)
+            self.assertIn('data-source="song-minus-one.mp3"', player)
             with zipfile.ZipFile(output / "bundle.zip") as archive:
                 self.assertIn("song-minus-one.mp3", archive.namelist())
                 self.assertEqual(archive.read("song-minus-one.mp3"), b"minus-one audio")
-                self.assertIn('<option value="song-minus-one.mp3">Minus one</option>', archive.read("index.html").decode("utf-8"))
+                self.assertIn('data-source="song-minus-one.mp3"', archive.read("index.html").decode("utf-8"))
 
     def test_minus_one_requires_original_audio(self):
         with tempfile.TemporaryDirectory() as temp:

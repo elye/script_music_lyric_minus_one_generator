@@ -15,6 +15,7 @@
     .muted { color: #a5b3c2; font-size: 14px; line-height: 1.6; }
     .controls { position: sticky; top: 12px; z-index: 1; background: #1b242e; border: 1px solid #344352; border-radius: 16px; padding: 18px; }
     audio { width: 100%; display: block; }
+    audio[hidden] { display: none; }
     .options, .actions { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
     .options { margin-top: 12px; font-size: 14px; }
     button, input, select { font: inherit; }
@@ -60,9 +61,10 @@
     <p class="muted">Click a line to seek. Use Edit to correct lyrics and timing while listening.</p>
   </header>
   <section class="controls" aria-label="Playback controls">
-    <audio id="audio" controls preload="metadata" src="__AUDIO_SOURCE__"></audio>
+    <audio id="audio" controls preload="auto" src="__AUDIO_SOURCE__"></audio>
+    <audio id="alternate-audio" controls preload="auto" data-source="__MINUS_ONE_SOURCE__" hidden></audio>
     <div class="options">
-      <label id="track-control"__TRACK_CONTROL_HIDDEN__>Audio track <select id="audio-track" aria-label="Audio track"><option value="__AUDIO_SOURCE__" selected>Original</option><option value="__MINUS_ONE_SOURCE__">Minus one</option></select></label>
+      <label id="track-control"__TRACK_CONTROL_HIDDEN__>Audio track <select id="audio-track" aria-label="Audio track"><option value="original" selected>Original</option><option value="minus-one">Minus one</option></select></label>
       <label>Speed <select id="speed"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option></select></label>
       <label><input id="follow" type="checkbox" checked> Follow lyrics</label>
       <span id="clock">0:00 / 0:00</span>

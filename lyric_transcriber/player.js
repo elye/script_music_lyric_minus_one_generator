@@ -59,7 +59,12 @@ function parseSeconds(value, label) {
 
 const transcript = JSON.parse(document.getElementById('transcript').textContent);
 const element = id => document.getElementById(id);
-const audio = element('audio');
+let audio = element('audio');
+const originalAudio = audio;
+const alternateAudio = element('alternate-audio');
+const minusOneSource = alternateAudio.getAttribute('data-source') || '';
+if (minusOneSource) alternateAudio.src = minusOneSource;
+alternateAudio.hidden = true;
 const audioTrack = element('audio-track');
 const lyrics = element('lyrics');
 const status = element('status');
@@ -260,33 +265,137 @@ window.addEventListener('beforeunload', event => {
   if (fingerprint() !== savedLines || pendingDraft()) { event.preventDefault(); event.returnValue = ''; }
 });
 
-let sourceChange = 0;
-audioTrack.addEventListener('change', () => {
-  const source = audioTrack.value;
-  if (!source) return;
-  const change = ++sourceChange;
-  const position = audio.currentTime;
-  const playbackRate = audio.playbackRate;
-  const resume = !audio.paused && !audio.ended;
-  audio.addEventListener('loadedmetadata', () => {
-    if (change !== sourceChange) return;
-    const duration = Number.isFinite(audio.duration) ? audio.duration : transcript.duration;
-    audio.currentTime = Math.min(position, duration);
-    audio.playbackRate = playbackRate;
-    update();
-    if (resume) audio.play().catch(() => { status.textContent = 'Press Play in the audio controls to resume playback.'; });
-  }, { once: true });
-  audio.src = source;
-  audio.load();
-});
-element('speed').addEventListener('change', event => { audio.playbackRate = Number(event.target.value); });
-['timeupdate', 'seeked', 'loadedmetadata', 'pause', 'ended'].forEach(event => audio.addEventListener(event, update));
-audio.addEventListener('error', () => { status.textContent = 'Unable to load the MP3. Extract the ZIP and keep the audio beside index.html.'; });
+let masterVolume = audio.volume;
+let masterMuted = audio.muted;
+let isCrossfading = false;
 let animation = null;
+let switchRequest = 0;
 const animate = () => { update(); animation = audio.paused || audio.ended ? null : requestAnimationFrame(animate); };
-audio.addEventListener('play', () => {
+function startAnimation() {
   status.textContent = '';
   if (animation !== null) cancelAnimationFrame(animation);
+  animation = null;
   animate();
+}
+function attachAudioEvents(media) {
+  ['timeupdate', 'seeked', 'loadedmetadata', 'pause', 'ended'].forEach(event => {
+    media.addEventListener(event, () => { if (media === audio) update(); });
+  });
+  media.addEventListener('error', () => {
+    if (media === audio) status.textContent = 'Unable to load the MP3. Extract the ZIP and keep the audio beside index.html.';
+  });
+  media.addEventListener('play', () => { if (media === audio) startAnimation(); });
+  media.addEventListener('volumechange', () => {
+    if (media === audio && !isCrossfading) {
+      masterVolume = media.volume;
+      masterMuted = media.muted;
+    }
+  });
+}
+[originalAudio, alternateAudio].forEach(attachAudioEvents);
+element('speed').addEventListener('change', event => { audio.playbackRate = Number(event.target.value); });
+
+function waitForCanPlay(media) {
+  if (media.readyState >= 3) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const cleanup = () => {
+      media.removeEventListener('canplay', onReady);
+      media.removeEventListener('error', onError);
+    };
+    const onReady = () => { cleanup(); resolve(); };
+    const onError = () => { cleanup(); reject(new Error('The selected track could not be loaded.')); };
+    media.addEventListener('canplay', onReady);
+    media.addEventListener('error', onError);
+  });
+}
+
+function completeSwitch(outgoing, incoming, track) {
+  audio = incoming;
+  incoming.hidden = false;
+  outgoing.hidden = true;
+  incoming.volume = masterVolume;
+  outgoing.volume = masterVolume;
+  incoming.muted = masterMuted;
+  audioTrack.value = track;
+  audioTrack.disabled = false;
+  status.textContent = '';
+  outgoing.pause();
+  update();
+  if (!audio.paused && !audio.ended) startAnimation();
+}
+
+function failSwitch(outgoing, incoming, request) {
+  if (request !== switchRequest) return;
+  incoming.pause();
+  incoming.volume = masterVolume;
+  incoming.muted = masterMuted;
+  incoming.hidden = true;
+  outgoing.hidden = false;
+  audio = outgoing;
+  audioTrack.value = outgoing === originalAudio ? 'original' : 'minus-one';
+  audioTrack.disabled = false;
+  isCrossfading = false;
+  status.textContent = 'Unable to start the selected track. Press Play and try again.';
+}
+
+function crossfade(outgoing, incoming, track, request) {
+  const volume = masterVolume;
+  let startedAt = null;
+  isCrossfading = true;
+  const fadeFrame = timestamp => {
+    if (request !== switchRequest) return;
+    if (startedAt === null) startedAt = timestamp;
+    const progress = Math.min(1, (timestamp - startedAt) / 120);
+    outgoing.volume = volume * (1 - progress);
+    incoming.volume = volume * progress;
+    if (progress < 1) {
+      requestAnimationFrame(fadeFrame);
+      return;
+    }
+    completeSwitch(outgoing, incoming, track);
+    isCrossfading = false;
+  };
+  requestAnimationFrame(fadeFrame);
+}
+
+audioTrack.addEventListener('change', () => {
+  const track = audioTrack.value;
+  const currentTrack = audio === originalAudio ? 'original' : 'minus-one';
+  if (track === currentTrack) return;
+  if (!minusOneSource || audioTrack.disabled) {
+    audioTrack.value = currentTrack;
+    return;
+  }
+  const incoming = track === 'minus-one' ? alternateAudio : originalAudio;
+  const outgoing = audio;
+  const request = ++switchRequest;
+  const wasPlaying = !outgoing.paused && !outgoing.ended;
+  audioTrack.disabled = true;
+  status.textContent = '';
+  if (wasPlaying) {
+    incoming.volume = 0;
+    incoming.muted = masterMuted;
+    try {
+      const playRequest = incoming.play();
+      Promise.all([waitForCanPlay(incoming), Promise.resolve(playRequest)]).then(() => {
+        if (request !== switchRequest) return;
+        const duration = Number.isFinite(incoming.duration) ? incoming.duration : transcript.duration;
+        incoming.currentTime = Math.min(outgoing.currentTime, duration);
+        incoming.playbackRate = outgoing.playbackRate;
+        crossfade(outgoing, incoming, track, request);
+      }).catch(() => failSwitch(outgoing, incoming, request));
+    } catch {
+      failSwitch(outgoing, incoming, request);
+    }
+  } else {
+    waitForCanPlay(incoming).then(() => {
+      if (request !== switchRequest) return;
+      const duration = Number.isFinite(incoming.duration) ? incoming.duration : transcript.duration;
+      incoming.currentTime = Math.min(outgoing.currentTime, duration);
+      incoming.playbackRate = outgoing.playbackRate;
+      incoming.pause();
+      completeSwitch(outgoing, incoming, track);
+    }).catch(() => failSwitch(outgoing, incoming, request));
+  }
 });
 renderLines();

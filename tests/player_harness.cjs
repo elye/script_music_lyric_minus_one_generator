@@ -45,6 +45,10 @@ function loadPlayer(transcript = fixture()) {
     setAttribute(name, value) { this.attributes[name] = value; }
     removeAttribute(name) { delete this.attributes[name]; }
     addEventListener(event, callback) { (this.listeners[event] ??= []).push(callback); }
+    removeEventListener(event, callback) {
+      this.listeners[event] = (this.listeners[event] ?? []).filter(listener => listener !== callback);
+    }
+    getAttribute(name) { return this.attributes[name] ?? null; }
     dispatch(event) {
       const payload = { target: this, prevented: false, preventDefault() { this.prevented = true; } };
       for (const callback of this.listeners[event] ?? []) callback(payload);
@@ -67,9 +71,24 @@ function loadPlayer(transcript = fixture()) {
   elements.transcript.textContent = JSON.stringify(transcript);
   elements.offset.value = '0';
   const audio = elements.audio;
-  Object.assign(audio, { currentTime: 0, duration: NaN, paused: true, ended: false, playCalls: 0, src: 'demo.mp3' });
-  audio.play = () => { audio.playCalls += 1; return Promise.resolve(); };
-  audio.load = () => { audio.currentTime = 0; audio.duration = 10; audio.dispatch('loadedmetadata'); };
+  const alternateAudio = elements['alternate-audio'];
+  alternateAudio.setAttribute('data-source', 'demo-minus-one.mp3');
+  for (const media of [audio, alternateAudio]) {
+    Object.assign(media, {
+      currentTime: 0, duration: 10, readyState: 4, paused: true, ended: false,
+      playCalls: 0, src: media === audio ? 'demo.mp3' : '', volume: 1, muted: false, playbackRate: 1,
+    });
+    media.play = () => {
+      media.playCalls += 1;
+      media.paused = false;
+      media.ended = false;
+      media.dispatch('play');
+      return Promise.resolve();
+    };
+    media.pause = () => { media.paused = true; media.dispatch('pause'); };
+  }
+  const frames = [];
+  let frameTime = 0;
   const window = new Element();
   window.matchMedia = () => ({ matches: true });
   const context = vm.createContext({
@@ -78,12 +97,19 @@ function loadPlayer(transcript = fixture()) {
     Blob,
     URL: { createObjectURL: blob => { const url = `blob:${blobs.size}`; blobs.set(url, blob); return url; }, revokeObjectURL: url => blobs.delete(url) },
     setTimeout: callback => timers.push(callback),
-    requestAnimationFrame: () => 1,
+    requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
     cancelAnimationFrame: () => {},
   });
   vm.runInContext(fs.readFileSync(path.join(__dirname, '../lyric_transcriber/player.js'), 'utf8'), context, { timeout: 1000 });
   return {
-    elements, audio, context, downloads, timers, window,
+    elements, audio, alternateAudio, context, downloads, timers, window,
+    stepFrames: count => {
+      for (let index = 0; index < count; index += 1) {
+        const current = frames.splice(0);
+        frameTime += 16;
+        current.forEach(callback => callback(frameTime));
+      }
+    },
     evaluate: script => vm.runInContext(script, context, { timeout: 1000 }),
     data: () => JSON.parse(vm.runInContext('JSON.stringify(transcript)', context)),
     seek: time => { audio.currentTime = time; audio.dispatch('timeupdate'); },
