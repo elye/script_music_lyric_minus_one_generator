@@ -1,63 +1,14 @@
 // Dependency-free logic check; this is not a full browser rendering test.
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
-
-class Element {
-  constructor() {
-    this.children = [];
-    this.listeners = {};
-    this.attributes = {};
-    this.textContent = '';
-    this.checked = true;
-    this.value = '1';
-    this.scrollCount = 0;
-    this.classes = new Set();
-    this.classList = {
-      add: name => this.classes.add(name),
-      remove: name => this.classes.delete(name),
-      toggle: (name, enabled) => enabled ? this.classes.add(name) : this.classes.delete(name),
-    };
-  }
-  append(...children) { this.children.push(...children); }
-  setAttribute(name, value) { this.attributes[name] = value; }
-  removeAttribute(name) { delete this.attributes[name]; }
-  addEventListener(event, callback) { (this.listeners[event] ??= []).push(callback); }
-  dispatch(event) { for (const callback of this.listeners[event] ?? []) callback({ target: this }); }
-  scrollIntoView() { this.scrollCount += 1; }
-}
-
-const transcript = {
-  audio_file: 'demo.mp3', duration: 10,
-  lines: [
-    { start: 1, end: 3, text: 'Hello world', words: [
-      { start: 1, end: 2, text: 'Hello' }, { start: 2, end: 3, text: ' world' },
-    ] },
-    { start: 5, end: 6, text: 'Line only', words: [] },
-  ],
-};
-const elements = Object.fromEntries(['transcript', 'audio', 'lyrics', 'status', 'clock', 'follow', 'title', 'speed'].map(id => [id, new Element()]));
-elements.transcript.textContent = JSON.stringify(transcript);
-const audio = elements.audio;
-Object.assign(audio, { currentTime: 0, duration: NaN, paused: true, ended: false, playCalls: 0 });
-audio.play = () => { audio.playCalls += 1; return Promise.resolve(); };
-const context = vm.createContext({
-  document: { getElementById: id => elements[id], createElement: () => new Element() },
-  window: { matchMedia: () => ({ matches: true }) },
-  requestAnimationFrame: () => 1,
-  cancelAnimationFrame: () => {},
-});
-const template = fs.readFileSync(path.join(__dirname, '../lyric_transcriber/player.html'), 'utf8');
-const script = template.match(/<script>\s*([\s\S]*?)<\/script>/)[1];
-vm.runInContext(script, context, { timeout: 1000 });
+const { loadPlayer } = require('./player_harness.cjs');
+const player = loadPlayer();
+const { elements, audio, alternateAudio, seek } = player;
 assert.equal(elements.title.textContent, 'demo.mp3');
 assert.equal(elements.clock.textContent, '0:00 / 0:10');
 assert.equal(elements.lyrics.children.length, 2);
-const [first, second] = elements.lyrics.children;
+const [first, second] = elements.lyrics.children.map(row => row.children[0]);
 const words = first.children[1].children;
 
-function seek(time) { audio.currentTime = time; audio.dispatch('timeupdate'); }
 seek(1.5);
 assert(first.classes.has('active'));
 assert(words[0].classes.has('active'));
@@ -86,6 +37,51 @@ assert.equal(audio.playCalls, 1);
 elements.speed.value = '1.25';
 elements.speed.dispatch('change');
 assert.equal(audio.playbackRate, 1.25);
-audio.dispatch('error');
-assert(elements.status.textContent.includes('Extract the ZIP'));
-console.log('Player logic checks passed: line/word highlighting, gap clearing, seeking, follow toggle, playback speed, and audio errors.');
+(async () => {
+  audio.currentTime = 2.75;
+  audio.paused = false;
+  audio.volume = 0.6;
+  audio.dispatch('volumechange');
+  elements['audio-track'].value = 'minus-one';
+  elements['audio-track'].dispatch('change');
+  for (let index = 0; index < 6; index += 1) await Promise.resolve();
+  assert.equal(audio.paused, false);
+  assert.equal(alternateAudio.paused, false);
+  player.stepFrames(4);
+  assert(Math.abs(audio.volume + alternateAudio.volume - 0.6) < 1e-9);
+  player.stepFrames(6);
+  assert.equal(audio.hidden, true);
+  assert.equal(alternateAudio.hidden, false);
+  assert.equal(alternateAudio.currentTime, 2.75);
+  assert.equal(alternateAudio.playbackRate, 1.25);
+  assert.equal(alternateAudio.volume, 0.6);
+  assert.equal(alternateAudio.paused, false);
+  assert.equal(audio.paused, true);
+  assert.equal(elements['audio-track'].value, 'minus-one');
+
+  alternateAudio.currentTime = 4.25;
+  elements['audio-track'].value = 'original';
+  elements['audio-track'].dispatch('change');
+  for (let index = 0; index < 6; index += 1) await Promise.resolve();
+  player.stepFrames(10);
+  assert.equal(audio.hidden, false);
+  assert.equal(alternateAudio.hidden, true);
+  assert.equal(audio.currentTime, 4.25);
+  assert.equal(audio.playbackRate, 1.25);
+  assert.equal(audio.volume, 0.6);
+  assert.equal(audio.paused, false);
+  assert.equal(alternateAudio.paused, true);
+
+  audio.dispatch('error');
+  assert(elements.status.textContent.includes('Extract the ZIP'));
+  const pausedPlayer = loadPlayer();
+  pausedPlayer.audio.currentTime = 6;
+  pausedPlayer.elements['audio-track'].value = 'minus-one';
+  pausedPlayer.elements['audio-track'].dispatch('change');
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(pausedPlayer.alternateAudio.currentTime, 6);
+  assert.equal(pausedPlayer.alternateAudio.paused, true);
+  assert.equal(pausedPlayer.alternateAudio.hidden, false);
+  console.log('Player logic checks passed: lyric playback, synced audio switching, crossfade, volume, and paused-track switching.');
+})().catch(error => { console.error(error); process.exitCode = 1; });

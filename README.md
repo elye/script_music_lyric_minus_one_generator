@@ -2,10 +2,12 @@
 
 A local Python CLI that turns an MP3 into estimated lyrics and timestamps. Export
 LRC for music players, SRT/VTT for subtitles, editable JSON with word timings, or a
-ZIP containing the original MP3 and an offline, word-highlighting lyrics player.
+ZIP containing the original MP3 and an offline, word-highlighting lyrics player
+with a built-in lyric and timing editor.
 
-Audio stays on your machine. No API key or paid transcription service is needed.
-The first run downloads model weights unless you use `--offline`.
+Audio stays on your machine; neither engine uploads it. Whisper may download
+model weights unless you use `--offline`. Demucs may download separate weights
+on the first `--minus-one` run; `--offline` currently applies to Whisper only.
 
 ## Install
 
@@ -14,6 +16,12 @@ Python 3.10 or later is required. From this folder:
 ```bash
 python3 -m venv .venv
 .venv/bin/python -m pip install -e '.[transcribe]'
+```
+
+To also generate vocal-removed accompaniment, install the optional Demucs dependency:
+
+```bash
+.venv/bin/python -m pip install -e '.[minus-one]'
 ```
 
 On Windows, use `.venv\Scripts\python.exe` and
@@ -34,6 +42,25 @@ CUDA needs a compatible NVIDIA GPU and runtime libraries.
   --bundle
 ```
 
+Add `--minus-one` to also create `song-minus-one.mp3`, an accompaniment track
+with vocals removed, encoded at 320 kbps. Use it with `export` too, alongside
+`--audio`, to regenerate that track from corrected transcript JSON:
+
+```bash
+.venv/bin/lyric-transcriber transcribe song.mp3 --output exports/song --minus-one --bundle
+.venv/bin/lyric-transcriber export song.json --audio song.mp3 \
+  --output exports/song-corrected --minus-one --bundle
+```
+
+Demucs runs locally and may download its `htdemucs` model on first use; the
+transcription `--offline` option does not disable this download. The MP3 is
+included in `bundle.zip` when `--bundle` is enabled; the player then offers an
+Audio track selector to switch between the original and minus-one with a short
+crossfade, keeping the playhead, playback state, and volume. Vocal separation is
+imperfect: some vocals may remain,
+and instruments that resemble vocals may be removed. Use audio you are authorized
+to process.
+
 Omit `--language` to detect it. The default model is multilingual `small` (roughly
 0.5 GB of weights); `tiny` is faster and much smaller but usually less accurate.
 A larger model can help, but none guarantees accurate singing recognition.
@@ -50,11 +77,11 @@ A larger model can help, but none guarantees accurate singing recognition.
   --max-chars 42 --max-seconds 8 --gap-seconds 0.9 --output exports/tuned
 ```
 
-Downloads go to `.cache/lyric-transcriber/models` relative to your current working
-directory. Use `--cache-dir PATH` to change it or `--model /path/to/local/model`
-to use a converted faster-whisper/CTranslate2 model directory. `--offline` fails
-rather than downloading missing model files. For CUDA, use `--device cuda` and a
-supported `--compute-type` such as `float16`.
+Whisper downloads go to `.cache/lyric-transcriber/models` relative to your current
+working directory. Use `--cache-dir PATH` to change it or
+`--model /path/to/local/model` to use a converted faster-whisper/CTranslate2 model
+directory. `--offline` fails rather than downloading missing Whisper model files.
+For CUDA, use `--device cuda` and a supported `--compute-type` such as `float16`.
 
 The CLI can also run without installation as `python -m lyric_transcriber` from
 this folder. Transcription still requires its optional dependencies.
@@ -69,14 +96,16 @@ song.lrc       Line-start timestamps with centisecond precision
 song.srt       Subtitle intervals with millisecond precision
 song.vtt       WebVTT subtitle intervals
 song.json      Editable transcript with estimated word starts/ends
-index.html     Offline audio player with line and word highlighting
+song-minus-one.mp3  Optional accompaniment with vocals removed (--minus-one)
+index.html     Offline audio player, lyric editor, and timing correction tools
 bundle.zip     Everything above, ready to extract and play
 ```
 
-Without `--bundle`, only the four lyric/transcript files are created. An output
-directory must not already exist; use a new name for each run. The app never
-overwrites your MP3 or an existing export. A bundle stores two copies of the MP3
-(one loose and one in the ZIP), so allow enough disk space.
+Without `--bundle`, the four lyric/transcript files are created; `--minus-one`
+adds the accompaniment MP3. An output directory must not already exist; use a new
+name for each run. The app never overwrites your MP3 or an existing export. A
+bundle stores copies of the MP3 and, when requested, the minus-one MP3 both loose
+and in the ZIP, so allow enough disk space.
 
 - **Music player:** put `song.lrc` beside `song.mp3` with the same base filename,
   then open the audio in a player that supports external LRC files. Support varies;
@@ -94,20 +123,50 @@ MP3 ID3 tags.
 
 ## Correct lyrics without rerunning inference
 
-Copy and edit the exported JSON. Keep `schema_version: 1` and the original audio
-filename. Update a line's `text`, `start`, and `end` as needed.
+Open `index.html` from a newly generated bundle in a modern browser:
 
-If the line contains `words`, update those words and their times too. Word strings
-preserve leading spaces: joining them must match the line's text. Alternatively,
-set `"words": []` for a corrected line to use line-only highlighting. Do not pretend
-that old word timings align newly written lyrics.
+1. Click **Edit** beside a lyric line. Correct its text, start, and end (in seconds).
+   Pause playback at a boundary and use **Use playhead for start/end** to capture it.
+2. Click **Apply changes**. Invalid intervals, overlaps, blank lyrics, and times
+   outside the recording are rejected without changing the transcript.
+3. Use **Add line** for missed lyrics or **Remove line** for hallucinated lyrics.
+   New lines default to the playhead; adjust their boundaries to fit a gap.
+4. If the entire transcript is early or late, use **Shift all timings**. Positive
+   seconds move lyrics later; negative seconds move them earlier. This shifts
+   both line and word timestamps without trimming or clamping.
+5. Use **Undo** to reverse up to the last 25 changes in the current tab.
+6. Click **Download corrected JSON**, check that the file was saved, then regenerate
+   sidecars and the bundle:
 
 ```bash
-.venv/bin/lyric-transcriber export exports/song/song.json \
+.venv/bin/lyric-transcriber export "/path/to/song.corrected.json" \
   --audio "/path/to/song.mp3" \
   --output exports/song-corrected \
   --bundle
 ```
+
+**Changes live only in the tab until downloaded.** No audio or lyrics are uploaded,
+no browser storage is used, and the original HTML, sidecars, ZIP, and MP3 are not
+modified. The browser warns about undownloaded edits when closing or reloading
+where supported. Reopen the regenerated bundle to continue editing saved changes;
+this version does not import corrected JSON directly into the player.
+
+Changing a line's text or either boundary clears that line's estimated `words`
+array, so it uses line-only highlighting rather than misleading old alignment.
+An unchanged edit preserves full timestamp precision. Whole-song offsets preserve
+word timing and confidence. This is manual correction, not automatic realignment.
+
+For an older bundle without editing controls, regenerate it once with the current
+CLI using its existing JSON and a new output directory:
+
+```bash
+.venv/bin/lyric-transcriber export exports/song/song.json \
+  --audio "/path/to/song.mp3" --output exports/song-editor --bundle
+```
+
+You can still edit JSON directly: keep `schema_version: 1` and the original
+`audio_file`. Update line `text`, `start`, and `end`; update its words too, or set
+`"words": []`. Word strings retain leading spaces and must join to the line's text.
 
 Export-only use has no third-party dependencies:
 
@@ -139,12 +198,15 @@ Use audio you are authorized to process and share.
 ```bash
 python3 -m unittest discover -s tests -v
 node tests/test_player.cjs
+node --test tests/test_editor.cjs
 ```
 
 The Python suite uses the standard library. It tests validation, segmentation,
 sidecar formats, escaping, bundle integrity, safe publishing, CLI failures, and a
-controlled inference adapter. The Node test exercises the player logic with a
-minimal DOM harness; it is not a full browser rendering or audio-playback test.
+controlled inference adapter. Two editor-to-Python bridge tests also run when
+Node.js is installed (otherwise they are skipped). The Node suites exercise
+playback and editing with a minimal DOM harness. Separate browser smoke checks
+cover the real editing controls, safe text rendering, and JSON download generation.
 
 See [docs/validation.md](docs/validation.md) for actual checks and the real-engine
 smoke test. Synthetic spoken audio proves pipeline connectivity, not singing

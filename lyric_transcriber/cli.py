@@ -20,12 +20,19 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("audio", type=Path, help="Original .mp3 file")
     run.add_argument("--output", type=Path, help="New directory (default: exports/<audio-stem>)")
     run.add_argument("--bundle", action="store_true", help="Include the MP3, offline player, and ZIP")
+    run.add_argument(
+        "--minus-one", action="store_true",
+        help="Also generate a vocal-removed minus-one MP3 (requires Demucs)",
+    )
     run.add_argument("--model", default="small", help="Whisper model name or local model directory (default: small)")
     run.add_argument("--language", help="Language code, e.g. en; omitted means automatic detection")
     run.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     run.add_argument("--compute-type", choices=("int8", "float16", "float32", "int8_float16"), default="int8")
     run.add_argument("--cache-dir", type=Path, default=Path(".cache/lyric-transcriber/models"))
-    run.add_argument("--offline", action="store_true", help="Use cached/local model files only; never download weights")
+    run.add_argument(
+        "--offline", action="store_true",
+        help="Use cached/local Whisper model files only; never download Whisper weights",
+    )
     run.add_argument("--max-chars", type=int, default=42, help="Target maximum characters per lyric line")
     run.add_argument("--max-seconds", type=float, default=8.0, help="Target maximum duration of a lyric line")
     run.add_argument("--gap-seconds", type=float, default=0.9, help="Split lyric lines across longer pauses")
@@ -35,6 +42,10 @@ def parser() -> argparse.ArgumentParser:
     export.add_argument("--output", type=Path, required=True, help="New output directory")
     export.add_argument("--audio", type=Path, help="Original MP3; required for --bundle")
     export.add_argument("--bundle", action="store_true")
+    export.add_argument(
+        "--minus-one", action="store_true",
+        help="Also generate a vocal-removed minus-one MP3 (requires --audio and Demucs)",
+    )
     return root
 
 
@@ -61,9 +72,23 @@ def main(argv: list[str] | None = None) -> int:
         else:
             transcript = Transcript.from_dict(json.loads(args.transcript.expanduser().read_text(encoding="utf-8")))
             audio, output = args.audio, args.output
-        exported = export_transcript(transcript, output, audio=audio, bundle=args.bundle)
+        if args.minus_one:
+            print(
+                "Generating a minus-one MP3 locally; Demucs may download model weights on its first run.",
+                file=sys.stderr,
+            )
+            if args.command == "transcribe" and args.offline:
+                print("Note: --offline applies to Whisper only; Demucs may still download weights.", file=sys.stderr)
+        exported = export_transcript(
+            transcript, output, audio=audio, bundle=args.bundle, minus_one=args.minus_one
+        )
         print(f"Exported {len(transcript.lines)} lyric lines to {exported}")
-        print("Formats: LRC, SRT, VTT, JSON" + ("; MP3, index.html, bundle.zip" if args.bundle else ""))
+        formats = "Formats: LRC, SRT, VTT, JSON"
+        if args.bundle:
+            formats += "; MP3, index.html, bundle.zip"
+        if args.minus_one:
+            formats += "; minus-one MP3"
+        print(formats)
         if not transcript.lines:
             print("Warning: no lyrics were recognized. Check the recording, language, and model.", file=sys.stderr)
         print("Review lyrics and timing: singing, accompaniment, and silence can cause recognition errors.", file=sys.stderr)

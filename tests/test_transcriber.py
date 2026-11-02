@@ -17,6 +17,7 @@ from lyric_transcriber.exporters import (
     render_subtitles, subtitle_time, ticks,
 )
 from lyric_transcriber.models import Line, Transcript, Word
+from lyric_transcriber.separation import generate_minus_one
 from lyric_transcriber.transcribe import (
     LineOptions, TranscriptionError, group_words, transcribe, validate_audio,
 )
@@ -152,10 +153,31 @@ class ExportTests(unittest.TestCase):
         player = render_player(transcript)
         self.assertNotIn(lyric, player)
         self.assertIn('src="a%20%23%22song.mp3"', player)
+        self.assertIn('<label id="track-control" hidden>', player)
+        self.assertIn('audio[hidden] { display: none; }', player)
         data = player.split('<script id="transcript" type="application/json">', 1)[1].split('</script>', 1)[0]
         self.assertEqual(json.loads(data)["lines"][0]["text"], lyric)
         self.assertNotIn("__TRANSCRIPT_DATA__", player)
         self.assertNotIn("__AUDIO_SOURCE__", player)
+        self.assertNotIn("__PLAYER_SCRIPT__", player)
+        self.assertIn("function replaceLine(", player)
+        self.assertNotIn('<script src=', player)
+
+    def test_minus_one_player_exposes_track_switch(self):
+        player = render_player(sample(), minus_one=True)
+        self.assertIn('<label id="track-control">', player)
+        self.assertIn('<option value="original" selected>Original</option>', player)
+        self.assertIn('<option value="minus-one">Minus one</option>', player)
+        self.assertIn('data-source="song-minus-one.mp3"', player)
+
+    def test_template_tokens_in_user_data_are_not_expanded(self):
+        lyric = "__PLAYER_SCRIPT__ __AUDIO_SOURCE__ __TRANSCRIPT_DATA__ __MINUS_ONE_SOURCE__ __TRACK_CONTROL_HIDDEN__"
+        transcript = replace(sample(), audio_file="__TRANSCRIPT_DATA__.mp3", lines=(Line(0, 1, lyric),))
+        player = render_player(transcript)
+        self.assertIn('src="__TRANSCRIPT_DATA__.mp3"', player)
+        data = player.split('<script id="transcript" type="application/json">', 1)[1].split('</script>', 1)[0]
+        self.assertEqual(json.loads(data)["lines"][0]["text"], lyric)
+        self.assertEqual(player.count("function replaceLine("), 1)
 
     def test_empty_transcript_is_valid(self):
         empty = replace(sample(), lines=())
@@ -177,6 +199,34 @@ class ExportTests(unittest.TestCase):
                 self.assertEqual(archive.read("song.mp3"), original)
                 self.assertIsNone(archive.testzip())
             self.assertEqual((output / "song.mp3").read_bytes(), original)
+
+    def test_minus_one_is_written_and_included_in_bundle(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / "song.mp3"
+            audio.write_bytes(b"original audio")
+
+            def generate(audio_path, destination):
+                destination.write_bytes(b"minus-one audio")
+                return destination
+
+            with patch("lyric_transcriber.separation.generate_minus_one", side_effect=generate):
+                output = export_transcript(sample(), root / "out", audio=audio, bundle=True, minus_one=True)
+
+            minus_one_file = output / "song-minus-one.mp3"
+            self.assertEqual(minus_one_file.read_bytes(), b"minus-one audio")
+            player = (output / "index.html").read_text(encoding="utf-8")
+            self.assertIn('<option value="minus-one">Minus one</option>', player)
+            self.assertIn('data-source="song-minus-one.mp3"', player)
+            with zipfile.ZipFile(output / "bundle.zip") as archive:
+                self.assertIn("song-minus-one.mp3", archive.namelist())
+                self.assertEqual(archive.read("song-minus-one.mp3"), b"minus-one audio")
+                self.assertIn('data-source="song-minus-one.mp3"', archive.read("index.html").decode("utf-8"))
+
+    def test_minus_one_requires_original_audio(self):
+        with tempfile.TemporaryDirectory() as temp:
+            with self.assertRaisesRegex(ValueError, "requires the original MP3"):
+                export_transcript(sample(), Path(temp) / "out", minus_one=True)
 
     def test_sidecar_export_has_no_audio_or_player(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -242,6 +292,44 @@ class ExportTests(unittest.TestCase):
                     export_transcript(sample(), output)
             self.assertEqual((output / "keep.txt").read_text(), "do not overwrite")
             self.assertEqual({p.name for p in root.iterdir()}, {"out"})
+
+
+class SeparationTests(unittest.TestCase):
+    def test_generates_minus_one_mp3_with_demucs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / "song.mp3"
+            audio.write_bytes(b"fixture")
+            destination = root / "song-minus-one.mp3"
+
+            def run_demucs(command, **kwargs):
+                demucs_output = Path(command[command.index("--out") + 1])
+                accompaniment = demucs_output / "htdemucs" / "song" / "no_vocals.mp3"
+                accompaniment.parent.mkdir(parents=True)
+                accompaniment.write_bytes(b"minus-one audio")
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+            with patch("lyric_transcriber.separation.find_spec", return_value=object()), patch(
+                "lyric_transcriber.separation.subprocess.run", side_effect=run_demucs
+            ) as runner:
+                result = generate_minus_one(audio, destination)
+
+            self.assertEqual(result, destination)
+            self.assertEqual(destination.read_bytes(), b"minus-one audio")
+            command = runner.call_args.args[0]
+            self.assertEqual(
+                command[2:10],
+                ["demucs", "--two-stems", "vocals", "--name", "htdemucs", "--mp3", "--mp3-bitrate", "320"],
+            )
+            self.assertEqual(runner.call_args.kwargs["check"], False)
+
+    def test_missing_demucs_has_install_instructions(self):
+        with tempfile.TemporaryDirectory() as temp:
+            audio = Path(temp) / "song.mp3"
+            audio.write_bytes(b"fixture")
+            with patch("lyric_transcriber.separation.find_spec", return_value=None):
+                with self.assertRaisesRegex(TranscriptionError, "pip install -e '\\.\\[minus-one\\]'" ):
+                    generate_minus_one(audio, Path(temp) / "output.mp3")
 
 
 class AdapterTests(unittest.TestCase):
@@ -343,6 +431,23 @@ class CliTests(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("already exists", err)
             engine.assert_not_called()
+
+    def test_transcribe_minus_one_flag_reaches_export(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            audio = root / "song.mp3"
+            audio.write_bytes(b"fixture")
+            output = root / "out"
+            with patch("lyric_transcriber.cli.transcribe", return_value=sample()), patch(
+                "lyric_transcriber.cli.export_transcript", return_value=output
+            ) as export:
+                code, out, err = self.run_cli(
+                    "transcribe", str(audio), "--output", str(output), "--minus-one", "--bundle"
+                )
+            self.assertEqual(code, 0, err)
+            self.assertIn("minus-one MP3", out)
+            self.assertEqual(export.call_args.kwargs["minus_one"], True)
+            self.assertEqual(export.call_args.kwargs["bundle"], True)
 
     def test_empty_transcription_warns(self):
         with tempfile.TemporaryDirectory() as temp:
