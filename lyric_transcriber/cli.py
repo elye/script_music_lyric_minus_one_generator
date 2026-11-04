@@ -8,7 +8,7 @@ import sys
 from . import __version__
 from .exporters import export_transcript
 from .models import Transcript
-from .transcribe import LineOptions, TranscriptionError, transcribe, validate_audio
+from .transcribe import DEFAULT_MODEL_CACHE_DIR, LineOptions, TranscriptionError, transcribe, validate_audio
 
 
 def parser() -> argparse.ArgumentParser:
@@ -28,7 +28,10 @@ def parser() -> argparse.ArgumentParser:
     run.add_argument("--language", help="Language code, e.g. en; omitted means automatic detection")
     run.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     run.add_argument("--compute-type", choices=("int8", "float16", "float32", "int8_float16"), default="int8")
-    run.add_argument("--cache-dir", type=Path, default=Path(".cache/lyric-transcriber/models"))
+    run.add_argument(
+        "--cache-dir", type=Path, default=DEFAULT_MODEL_CACHE_DIR,
+        help="Directory for downloaded model weights (default: .cache/lyric-transcriber/models)",
+    )
     run.add_argument(
         "--offline", action="store_true",
         help="Use cached/local Whisper model files only; never download Whisper weights",
@@ -42,6 +45,10 @@ def parser() -> argparse.ArgumentParser:
     export.add_argument("--output", type=Path, required=True, help="New output directory")
     export.add_argument("--audio", type=Path, help="Original MP3; required for --bundle")
     export.add_argument("--bundle", action="store_true")
+    export.add_argument(
+        "--cache-dir", type=Path, default=DEFAULT_MODEL_CACHE_DIR,
+        help="Directory for downloaded model weights (default: .cache/lyric-transcriber/models)",
+    )
     export.add_argument(
         "--minus-one", action="store_true",
         help="Also generate a vocal-removed minus-one MP3 (requires --audio and Demucs)",
@@ -80,7 +87,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.command == "transcribe" and args.offline:
                 print("Note: --offline applies to Whisper only; Demucs may still download weights.", file=sys.stderr)
         exported = export_transcript(
-            transcript, output, audio=audio, bundle=args.bundle, minus_one=args.minus_one
+            transcript, output, audio=audio, bundle=args.bundle, minus_one=args.minus_one,
+            cache_dir=args.cache_dir,
         )
         print(f"Exported {len(transcript.lines)} lyric lines to {exported}")
         formats = "Formats: LRC, SRT, VTT, JSON"

@@ -1,16 +1,22 @@
 """Optional local vocal separation for minus-one backing tracks."""
 
 from importlib.util import find_spec
+import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tempfile
 
-from .transcribe import TranscriptionError, validate_audio
+from .transcribe import DEFAULT_MODEL_CACHE_DIR, TranscriptionError, validate_audio
 
 
-def generate_minus_one(audio: Path, destination: Path) -> Path:
+def generate_minus_one(
+    audio: Path,
+    destination: Path,
+    *,
+    cache_dir: Path = DEFAULT_MODEL_CACHE_DIR,
+) -> Path:
     """Remove vocals with Demucs and write the accompaniment as an MP3 file."""
     audio = validate_audio(audio)
     destination = Path(destination)
@@ -37,8 +43,12 @@ def generate_minus_one(audio: Path, destination: Path) -> Path:
             temp_dir,
             str(audio),
         ]
+        environment = os.environ.copy()
+        # PyTorch stores Demucs checkpoints under $TORCH_HOME/hub/checkpoints.
+        # Keep them alongside the Whisper weights so one cache directory clears both.
+        environment["TORCH_HOME"] = str(Path(cache_dir).expanduser().resolve())
         try:
-            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            result = subprocess.run(command, capture_output=True, text=True, check=False, env=environment)
         except OSError as error:
             raise TranscriptionError(f"Could not start Demucs for minus-one generation: {error}") from error
         if result.returncode:

@@ -12,7 +12,7 @@ from urllib.parse import quote
 import zipfile
 
 from .models import Transcript
-from .transcribe import validate_audio
+from .transcribe import DEFAULT_MODEL_CACHE_DIR, validate_audio
 
 
 def ticks(seconds: float, resolution: int) -> int:
@@ -92,6 +92,7 @@ def export_transcript(
     audio: Path | None = None,
     bundle: bool = False,
     minus_one: bool = False,
+    cache_dir: Path = DEFAULT_MODEL_CACHE_DIR,
 ) -> Path:
     output = Path(output).expanduser().absolute()
     if output.exists() or output.is_symlink():
@@ -121,7 +122,7 @@ def export_transcript(
         if minus_one:
             from .separation import generate_minus_one
 
-            generate_minus_one(audio, staging / f"{stem}-minus-one.mp3")
+            generate_minus_one(audio, staging / f"{stem}-minus-one.mp3", cache_dir=cache_dir)
         if bundle:
             shutil.copyfile(audio, staging / transcript.audio_file)
             (staging / "index.html").write_text(render_player(transcript, minus_one=minus_one), encoding="utf-8")

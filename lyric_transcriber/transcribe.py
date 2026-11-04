@@ -7,6 +7,9 @@ from typing import Iterable
 from .models import Line, Transcript, Word, number
 
 
+DEFAULT_MODEL_CACHE_DIR = Path(".cache/lyric-transcriber/models")
+
+
 class TranscriptionError(RuntimeError):
     """An actionable failure of the optional transcription engine."""
 
@@ -72,7 +75,7 @@ def transcribe(
     language: str | None = None,
     device: str = "cpu",
     compute_type: str = "int8",
-    cache_dir: Path = Path(".cache/lyric-transcriber/models"),
+    cache_dir: Path = DEFAULT_MODEL_CACHE_DIR,
     offline: bool = False,
     line_options: LineOptions | None = None,
 ) -> Transcript:

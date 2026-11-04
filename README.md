@@ -77,11 +77,13 @@ A larger model can help, but none guarantees accurate singing recognition.
   --max-chars 42 --max-seconds 8 --gap-seconds 0.9 --output exports/tuned
 ```
 
-Whisper downloads go to `.cache/lyric-transcriber/models` relative to your current
-working directory. Use `--cache-dir PATH` to change it or
-`--model /path/to/local/model` to use a converted faster-whisper/CTranslate2 model
-directory. `--offline` fails rather than downloading missing Whisper model files.
-For CUDA, use `--device cuda` and a supported `--compute-type` such as `float16`.
+Whisper and Demucs downloads go under `.cache/lyric-transcriber/models` relative to
+your current working directory. Demucs uses a `hub/checkpoints` subfolder there, so
+deleting this cache directory removes both engines' model weights. Use `--cache-dir PATH`
+with either `transcribe` or `export` to change the shared cache location. Use `--model
+/path/to/local/model` for a converted faster-whisper/CTranslate2 model directory;
+`--offline` applies to Whisper only. For CUDA, use `--device cuda` and a supported
+`--compute-type` such as `float16`.
 
 The CLI can also run without installation as `python -m lyric_transcriber` from
 this folder. Transcription still requires its optional dependencies.

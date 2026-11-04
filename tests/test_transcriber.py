@@ -206,12 +206,17 @@ class ExportTests(unittest.TestCase):
             audio = root / "song.mp3"
             audio.write_bytes(b"original audio")
 
-            def generate(audio_path, destination):
+            cache_dir = root / "model-cache"
+
+            def generate(audio_path, destination, *, cache_dir):
                 destination.write_bytes(b"minus-one audio")
                 return destination
 
-            with patch("lyric_transcriber.separation.generate_minus_one", side_effect=generate):
-                output = export_transcript(sample(), root / "out", audio=audio, bundle=True, minus_one=True)
+            with patch("lyric_transcriber.separation.generate_minus_one", side_effect=generate) as generator:
+                output = export_transcript(
+                    sample(), root / "out", audio=audio, bundle=True, minus_one=True, cache_dir=cache_dir
+                )
+            self.assertEqual(generator.call_args.kwargs["cache_dir"], cache_dir)
 
             minus_one_file = output / "song-minus-one.mp3"
             self.assertEqual(minus_one_file.read_bytes(), b"minus-one audio")
@@ -309,10 +314,11 @@ class SeparationTests(unittest.TestCase):
                 accompaniment.write_bytes(b"minus-one audio")
                 return SimpleNamespace(returncode=0, stdout="", stderr="")
 
+            cache_dir = root / "models"
             with patch("lyric_transcriber.separation.find_spec", return_value=object()), patch(
                 "lyric_transcriber.separation.subprocess.run", side_effect=run_demucs
             ) as runner:
-                result = generate_minus_one(audio, destination)
+                result = generate_minus_one(audio, destination, cache_dir=cache_dir)
 
             self.assertEqual(result, destination)
             self.assertEqual(destination.read_bytes(), b"minus-one audio")
@@ -322,6 +328,7 @@ class SeparationTests(unittest.TestCase):
                 ["demucs", "--two-stems", "vocals", "--name", "htdemucs", "--mp3", "--mp3-bitrate", "320"],
             )
             self.assertEqual(runner.call_args.kwargs["check"], False)
+            self.assertEqual(runner.call_args.kwargs["env"]["TORCH_HOME"], str(cache_dir.resolve()))
 
     def test_missing_demucs_has_install_instructions(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -442,12 +449,14 @@ class CliTests(unittest.TestCase):
                 "lyric_transcriber.cli.export_transcript", return_value=output
             ) as export:
                 code, out, err = self.run_cli(
-                    "transcribe", str(audio), "--output", str(output), "--minus-one", "--bundle"
+                    "transcribe", str(audio), "--output", str(output), "--minus-one", "--bundle",
+                    "--cache-dir", str(root / "model-cache"),
                 )
             self.assertEqual(code, 0, err)
             self.assertIn("minus-one MP3", out)
             self.assertEqual(export.call_args.kwargs["minus_one"], True)
             self.assertEqual(export.call_args.kwargs["bundle"], True)
+            self.assertEqual(export.call_args.kwargs["cache_dir"], root / "model-cache")
 
     def test_empty_transcription_warns(self):
         with tempfile.TemporaryDirectory() as temp:

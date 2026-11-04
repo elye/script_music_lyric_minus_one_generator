@@ -37,8 +37,8 @@ reverse engineered an existing product or reproduced its internals.
 - Editor changes are validated before application and remain in memory. Download corrected schema-v1 JSON and run `export` to rebuild sidecars or a bundle. The editor never overwrites source files and does not promise persistence until the download is saved.
 - The player and editor script are inlined into `index.html`; no server, CDN, browser storage, or new runtime dependency is needed.
 - Empty recognition produces an empty transcript plus an explicit warning, not fabricated lyrics. Missing dependencies, bad audio, malformed JSON, and output conflicts produce a nonzero CLI exit.
-- First Whisper inference may download model weights. `--offline` forbids Whisper model downloads; `--model` also accepts a local model directory. The default model cache is `.cache/lyric-transcriber/models` under the working directory.
-- Minus-one generation uses Demucs `htdemucs`; its first run may download model weights even when transcription uses `--offline`. The resulting MP3 joins the export directory and, when requested, the ZIP. Source separation is approximate and may leave vocals or remove vocal-like instruments.
+- First Whisper inference may download model weights. `--offline` forbids Whisper model downloads; `--model` also accepts a local model directory. The default shared model cache is `.cache/lyric-transcriber/models` under the working directory.
+- Minus-one generation uses Demucs `htdemucs`; its first run may download model weights even when transcription uses `--offline`. Demucs stores them under `hub/checkpoints` inside the shared model cache, which can be changed with `--cache-dir` on either command. Deleting the shared cache removes both models. The resulting MP3 joins the export directory and, when requested, the ZIP. Source separation is approximate and may leave vocals or remove vocal-like instruments.
 
 ## Boundaries and validation
 
